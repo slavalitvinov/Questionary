@@ -241,7 +241,6 @@ def main():
         raise Exception(
             f'Failed to retrieve a questionary filename. Use: {sys.argv[0]} <filename>')
     filename = sys.argv[1]
-    filename = 'data/hobbit/questions.lst'
     questionary = Questionary(read_questions(filename))
     questionary.run()
 
