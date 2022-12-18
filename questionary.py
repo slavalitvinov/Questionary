@@ -21,9 +21,9 @@ class Question:
     # The question text.
     question: str = ''
     # The list of available options.
-    options: list[str] = field(default_factory=list)
+    options: List[str] = field(default_factory=lambda: [])
     # The list of images to support the question or options.
-    images: list[str] = field(default_factory=list)
+    images: List[str] = field(default_factory=list)
     # The correct answer index from the given options, starting from 1.
     answer: int = 0
     # The final text to be displayed when an answer is given.
@@ -32,21 +32,28 @@ class Question:
     final_image: Optional[str] = None
 
 Questions = Iterable[Question]
+ImageURL = str
+
+def parse_option(line: str) -> Tuple[str, ImageURL]:
+    m = re.match(
+        r'\s* ( \[ ([^\]]+?) \] )? \s* (.*)',
+        line,
+        flags=re.VERBOSE)
+    if not m:
+        raise Exception(f"Failed to parse the option: {line}")
+    return (m.group(3), m.group(2))
 
 def read_questions(filename: str) -> Questions:
     """Yields  questions out of a given text file.
     
     A text file contains:
 
-    title: <optional title text>
-    question: <question text>
-    option: <option text>
-    option: <option text>
-    image: <optional image file path relative to the given filename>
-    image: <...>
-    answer: <index>
-    final_text: <optional text>
-    final_image: <optional image file path>
+    question text
+    option text
+    * correct option text
+    [image.jpg] option text with image reference
+    > [final.jpg] Final text with optional image reference
+
     """
     base_path = os.path.dirname(filename)
     with open(filename, 'rt') as input_file:
@@ -57,28 +64,31 @@ def read_questions(filename: str) -> Questions:
             print(line)
             if len(line) == 0:
                 if len(quest.question):
+                    print(quest)
                     yield quest
                 quest = Question()
             elif line.startswith('#'):
                 pass
             else:
-                try:
-                    name, value = re.split(r'\s*:\s*', line, maxsplit=2)
-                except Exception as e:
-                    raise Exception(f'Failed to parse {filename}:{line_number}: {line!r}.') from e
-                if name == 'option':
-                    quest.options.append(value)
-                elif name == 'image':
-                    quest.images.append(os.path.join(base_path, value))
-                elif name == 'final_image':
-                    quest.final_image = os.path.join(base_path, value)
-                elif name in vars(Question):
-                    setattr(quest, name, value)
+                if not quest.question:
+                    quest.question = line
+                elif line.startswith('>'):
+                    (option, image) = parse_option(line[1:])
+                    if option:
+                        quest.final_text = option
+                    if image:
+                        quest.final_image = os.path.join(base_path, image)
                 else:
-                    raise Exception(
-                        f'Invalid question field {name!r} at {filename}:{line_number}:\n  {line}')
-            line_number += 1
+                    if line.startswith('*'):
+                        quest.answer = len(quest.options) + 1
+                        line = line[1:]
+                    (option, image) = parse_option(line)
+                    if option:
+                        quest.options.append(option)
+                    if image:
+                        quest.images.append(os.path.join(base_path, image))
         if len(quest.question):
+            print(quest)
             yield quest
 
 class Screen:
@@ -170,16 +180,16 @@ class Questionary:
         text = quest.final_text or quest.question if self._show_final else quest.question
         font.render_to(screen, (size[0]*0.05, size[1]*0.1), text, (100, 0, 0))
 
-        for index, option in enumerate(quest.options):
-            option = option.replace('\\n', '\n')
-            prefix = string.ascii_letters[index] + '. '
-            print(f"answer {quest.answer!r}")
-            color = (225, 20, 30) if self._show_final and (index+1 == int(quest.answer)) else (0, 0, 0)
-            font.render_to(
-                screen,
-                (screen.get_width()*0.07, screen.get_height()* 0.3 + index*40),
-                prefix + option,
-                color)
+        if self._show_final or (len(quest.options) > 1):
+            for index, option in enumerate(quest.options):
+                option = option.replace('\\n', '\n')
+                prefix = string.ascii_letters[index] + '. '
+                color = (225, 20, 30) if self._show_final and (index+1 == int(quest.answer)) else (0, 0, 0)
+                font.render_to(
+                    screen,
+                    (screen.get_width()*0.07, screen.get_height()* 0.3 + index*40),
+                    prefix + option,
+                    color)
 
         if self._show_final and quest.final_image:
             image = pygame.image.load(quest.final_image)
